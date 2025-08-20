@@ -203,4 +203,5 @@ if st.session_state.simulated_batches:
             impacted_assets = np.random.choice(ASSETS, size=np.random.randint(1, len(ASSETS)+1), replace=False)
             for asset in impacted_assets:
                 net.add_edge(batch_node, asset)
-        html = net.generate_html(_
+        html = net.generate_html()
+        components.html(html, height=650, scrolling=True)
