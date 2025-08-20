@@ -61,24 +61,25 @@ dataset_id = st.sidebar.text_input(
 )
 
 @st.cache_data(show_spinner="Downloading dataset from Kaggle…")
-def fetch_dataset(dataset_slug: str) -> pd.DataFrame:
+def fetch_dataset(dataset_slug: str, dataset_path: Path) -> pd.DataFrame:
     download_path = dataset_path / "kaggle_download"
     download_path.mkdir(exist_ok=True)
-    api.dataset_download_files(dataset_slug, path=str(download_path), unzip=True)
+
+    # Only download if files are not already present
+    if not any(download_path.iterdir()):
+        api.dataset_download_files(dataset_slug, path=str(download_path), unzip=True)
 
     # Load first CSV/Excel found
-    for root, _, files in os.walk(download_path):
-        for f in files:
-            fp = os.path.join(root, f)
-            if f.endswith(".csv"):
-                return pd.read_csv(fp)
-            elif f.endswith((".xls", ".xlsx")):
-                return pd.read_excel(fp)
+    for f in download_path.glob("*"):
+        if f.suffix.lower() == ".csv":
+            return pd.read_csv(f)
+        elif f.suffix.lower() in [".xls", ".xlsx"]:
+            return pd.read_excel(f)
     raise FileNotFoundError("No CSV or Excel files found in Kaggle dataset.")
 
 if "df" not in st.session_state:
     try:
-        st.session_state.df = fetch_dataset(dataset_id)
+        st.session_state.df = fetch_dataset(dataset_id, dataset_path)
         st.success("Dataset loaded successfully!")
     except Exception as e:
         st.error(f"Failed to download/load dataset: {e}")
@@ -152,7 +153,7 @@ def simulate_next_batch(event_type, cumulative_effect):
     batch += impact_map.get(event_type, 0)
     
     if inject_faults and np.random.rand() < (fault_chance / 100):
-        batch *= np.random.uniform(0.7, 0.9, size=len(batch))  # reduce yield
+        batch *= np.random.uniform(0.7, 0.9, size=len(batch))
         actual_event = "Faulty_Batch"
     else:
         actual_event = event_type
