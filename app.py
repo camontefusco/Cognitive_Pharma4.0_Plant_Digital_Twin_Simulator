@@ -1,5 +1,5 @@
 # ------------------------------
-# Cognitive Pharma Plant Digital Twin Dashboard (Lazy-Load Version)
+# Cognitive Pharma Plant Digital Twin Dashboard (Cached Dataset)
 # ------------------------------
 
 import os
@@ -12,82 +12,44 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 import streamlit.components.v1 as components
 from pathlib import Path
-
-st.set_page_config(page_title="Cognitive Pharma Digital Twin", layout="wide")
-
-# ------------------------------
-# Handle Kaggle API credentials safely
-# ------------------------------
-if "KAGGLE_USERNAME" in st.secrets and "KAGGLE_KEY" in st.secrets:
-    os.environ["KAGGLE_USERNAME"] = st.secrets["KAGGLE_USERNAME"]
-    os.environ["KAGGLE_KEY"] = st.secrets["KAGGLE_KEY"]
+import requests
 
 # ------------------------------
-# App Title & Instructions
+# Streamlit App Title & Info
 # ------------------------------
 st.title("🧬 Cognitive Pharma Plant Digital Twin")
 st.markdown("""
 ### Quick Start
-1. Add Kaggle credentials in Streamlit Secrets.  
-2. Load Dataset – includes normal and faulty batches.  
-3. Enable Fault Simulation (optional).  
-4. Train Model – Random Forest predicts batch yield.  
-5. Simulate Batches – select event type, number of batches, and fault chance.  
-6. Review Results – table shows yield, risk, event; knowledge graph links batches to assets.
+1. Load Dataset (pre-downloaded & cached).  
+2. Enable Fault Simulation (optional).  
+3. Train Model – Random Forest predicts batch yield.  
+4. Simulate Batches – select event type, number of batches, and fault chance.  
+5. Review Results – table shows yield, risk, event; knowledge graph links batches to assets.
 """)
 
-dataset_path = Path("data")
-dataset_path.mkdir(exist_ok=True)
+# ------------------------------
+# Dataset Setup
+# ------------------------------
+dataset_path = Path("data/dataset.csv")
+dataset_url = "https://your-storage.com/dataset.csv"  # <-- replace with your pre-downloaded cloud URL
+
+@st.cache_data(show_spinner=True)
+def load_dataset():
+    if not dataset_path.exists():
+        st.info("Downloading dataset from cloud storage…")
+        dataset_path.parent.mkdir(exist_ok=True)
+        r = requests.get(dataset_url, stream=True)
+        with open(dataset_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                f.write(chunk)
+    df = pd.read_csv(dataset_path)
+    return df
+
+df = load_dataset()
+st.success(f"Dataset loaded: {df.shape[0]} rows, {df.shape[1]} columns")
 
 # ------------------------------
-# Lazy-load Kaggle dataset
-# ------------------------------
-@st.cache_data(show_spinner=False)
-def fetch_dataset_safe(dataset_slug: str) -> pd.DataFrame:
-    try:
-        from kaggle.api.kaggle_api_extended import KaggleApi
-        api = KaggleApi()
-        api.authenticate()
-        download_path = dataset_path / "kaggle_download"
-        download_path.mkdir(exist_ok=True)
-        api.dataset_download_files(dataset_slug, path=str(download_path), unzip=True)
-        for root, _, files in os.walk(download_path):
-            for f in files:
-                if f.endswith(".csv"):
-                    return pd.read_csv(os.path.join(root, f))
-                elif f.endswith((".xls", ".xlsx")):
-                    return pd.read_excel(os.path.join(root, f))
-        st.warning("No CSV/Excel found in dataset; using sample dataset.")
-    except Exception as e:
-        st.warning(f"Kaggle download failed: {e}")
-    return pd.DataFrame({
-        "feature1": [0.1,0.2,0.3],
-        "feature2": [1.0,1.1,1.2],
-        "yield": [0.95,0.97,0.96]
-    })
-
-# ------------------------------
-# Sidebar – Dataset settings
-# ------------------------------
-st.sidebar.title("📊 Dataset Settings")
-dataset_id = st.sidebar.text_input(
-    "Kaggle Dataset ID",
-    "stephengoldie/big-databiopharmaceutical-manufacturing"
-)
-load_data = st.sidebar.button("Load Dataset")
-
-if load_data:
-    st.session_state.df = fetch_dataset_safe(dataset_id)
-
-if "df" not in st.session_state:
-    st.info("👉 Enter Kaggle dataset ID and click 'Load Dataset'")
-    st.stop()
-else:
-    df = st.session_state.df
-    st.success(f"Dataset ready with shape {df.shape}")
-
-# ------------------------------
-# Fault Injection settings
+# Sidebar: Fault Injection
 # ------------------------------
 st.sidebar.subheader("Fault Injection")
 fault_chance = st.sidebar.slider("Chance of Faulty Batch (%)", 0, 100, 10, 5)
@@ -104,24 +66,20 @@ if not numeric_cols:
 target_col = 'yield' if 'yield' in numeric_cols else numeric_cols[-1]
 features = [c for c in numeric_cols if c != target_col]
 
-@st.cache_resource(show_spinner=False)
-def train_model(df, features, target_col):
-    X_train, X_test, y_train, y_test = train_test_split(
-        df[features], df[target_col], test_size=0.2, random_state=42
-    )
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-    rmse = np.sqrt(np.mean((y_test - y_pred)**2))
-    return model, rmse
-
-model, rmse = train_model(df, features, target_col)
+X_train, X_test, y_train, y_test = train_test_split(
+    df[features], df[target_col], test_size=0.2, random_state=42
+)
+model = RandomForestRegressor(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
+rmse = np.sqrt(np.mean((y_test - y_pred)**2))
 st.sidebar.write(f"✅ RMSE on test set: {rmse:.3f}")
 
 # ------------------------------
 # Knowledge Graph Setup
 # ------------------------------
 ASSETS = ["Reactor_1", "Reactor_2", "Cold_Storage_1", "Cold_Storage_2"]
+
 if "G" not in st.session_state:
     G = nx.DiGraph()
     for asset in ASSETS:
@@ -176,7 +134,7 @@ def risk_color(risk):
     return 'red'
 
 # ------------------------------
-# Sidebar – Simulation controls
+# Sidebar: Batch Simulation
 # ------------------------------
 st.sidebar.title("Batch Simulation")
 selected_event = st.sidebar.selectbox("Select Event for Simulation", event_options)
