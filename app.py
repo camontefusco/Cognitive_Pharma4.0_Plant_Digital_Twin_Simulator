@@ -1,5 +1,5 @@
 # ------------------------------
-# Cognitive Pharma Plant Digital Twin Dashboard
+# Cognitive Pharma Plant Digital Twin Dashboard (Updated)
 # ------------------------------
 
 import os
@@ -15,7 +15,7 @@ from kaggle.api.kaggle_api_extended import KaggleApi
 from pathlib import Path
 
 # ------------------------------
-# Handle Kaggle API credentials via Streamlit secrets (for Streamlit Cloud)
+# Handle Kaggle API credentials via Streamlit secrets
 # ------------------------------
 if "KAGGLE_USERNAME" in st.secrets and "KAGGLE_KEY" in st.secrets:
     os.environ["KAGGLE_USERNAME"] = st.secrets["KAGGLE_USERNAME"]
@@ -25,20 +25,18 @@ if "KAGGLE_USERNAME" in st.secrets and "KAGGLE_KEY" in st.secrets:
 # User Instructions
 # ------------------------------
 st.title("🧬 Cognitive Pharma Plant Digital Twin")
-
 st.markdown("""
 ### Quick Start
-
-1. **Kaggle API Key** – Add your Kaggle credentials in Streamlit Secrets.  
-2. **Load Dataset** – Contains normal and faulty batches. Faulty batches reduce yield and increase risk.  
-3. **Enable Fault Simulation (Optional)** – Set “Chance of Faulty Batch (%)” to test AI recommendations.  
-4. **Train Model** – Random Forest predicts batch yield; RMSE indicates prediction accuracy.  
-5. **Simulate Batches** – Select event type, number of batches, and fault chance; click “Simulate Batches.”  
-6. **Review Results** – Table shows predicted yield, risk, and event; Knowledge Graph visualizes batch-asset links; AI recommendations highlight high-risk batches.
+1. Add Kaggle credentials in Streamlit Secrets.  
+2. Load Dataset – includes normal and faulty batches.  
+3. Enable Fault Simulation (optional).  
+4. Train Model – Random Forest predicts batch yield.  
+5. Simulate Batches – select event type, number of batches, and fault chance.  
+6. Review Results – table shows yield, risk, event; knowledge graph links batches to assets.
 """)
 
 # ------------------------------
-# 1️⃣ Kaggle API authentication
+# Kaggle API authentication
 # ------------------------------
 dataset_path = Path("data")
 dataset_path.mkdir(exist_ok=True)
@@ -52,7 +50,7 @@ except Exception as e:
     st.stop()
 
 # ------------------------------
-# 2️⃣ Download or load Kaggle Dataset
+# Dataset Loading
 # ------------------------------
 st.sidebar.title("📊 Dataset Settings")
 dataset_id = st.sidebar.text_input(
@@ -61,25 +59,21 @@ dataset_id = st.sidebar.text_input(
 )
 
 @st.cache_data(show_spinner="Downloading dataset from Kaggle…")
-def fetch_dataset(dataset_slug: str, dataset_path: Path) -> pd.DataFrame:
+def fetch_dataset(dataset_slug: str) -> pd.DataFrame:
     download_path = dataset_path / "kaggle_download"
     download_path.mkdir(exist_ok=True)
-
-    # Only download if files are not already present
-    if not any(download_path.iterdir()):
-        api.dataset_download_files(dataset_slug, path=str(download_path), unzip=True)
-
-    # Load first CSV/Excel found
-    for f in download_path.glob("*"):
-        if f.suffix.lower() == ".csv":
-            return pd.read_csv(f)
-        elif f.suffix.lower() in [".xls", ".xlsx"]:
-            return pd.read_excel(f)
+    api.dataset_download_files(dataset_slug, path=str(download_path), unzip=True)
+    for root, _, files in os.walk(download_path):
+        for f in files:
+            if f.endswith(".csv"):
+                return pd.read_csv(os.path.join(root, f))
+            elif f.endswith((".xls", ".xlsx")):
+                return pd.read_excel(os.path.join(root, f))
     raise FileNotFoundError("No CSV or Excel files found in Kaggle dataset.")
 
 if "df" not in st.session_state:
     try:
-        st.session_state.df = fetch_dataset(dataset_id, dataset_path)
+        st.session_state.df = fetch_dataset(dataset_id)
         st.success("Dataset loaded successfully!")
     except Exception as e:
         st.error(f"Failed to download/load dataset: {e}")
@@ -88,17 +82,14 @@ if "df" not in st.session_state:
 df = st.session_state.df
 
 # ------------------------------
-# 3️⃣ Dataset Summary & Fault Injection
+# Dataset Summary & Fault Injection
 # ------------------------------
 st.sidebar.subheader("Fault Injection")
-fault_chance = st.sidebar.slider(
-    "Chance of Faulty Batch (%)",
-    min_value=0, max_value=100, value=10, step=5
-)
+fault_chance = st.sidebar.slider("Chance of Faulty Batch (%)", 0, 100, 10, 5)
 inject_faults = st.sidebar.checkbox("Enable Faulty Batches", value=True)
 
 # ------------------------------
-# 4️⃣ Train Predictive Model
+# Train Predictive Model
 # ------------------------------
 numeric_cols = df.select_dtypes(include=['float64','int64']).columns.tolist()
 if not numeric_cols:
@@ -111,7 +102,6 @@ features = [c for c in numeric_cols if c != target_col]
 X_train, X_test, y_train, y_test = train_test_split(
     df[features], df[target_col], test_size=0.2, random_state=42
 )
-
 model = RandomForestRegressor(n_estimators=100, random_state=42)
 model.fit(X_train, y_train)
 y_pred = model.predict(X_test)
@@ -119,7 +109,7 @@ rmse = np.sqrt(np.mean((y_test - y_pred)**2))
 st.sidebar.write(f"✅ RMSE on test set: {rmse:.3f}")
 
 # ------------------------------
-# 5️⃣ Knowledge Graph Baseline
+# Knowledge Graph
 # ------------------------------
 ASSETS = ["Reactor_1", "Reactor_2", "Cold_Storage_1", "Cold_Storage_2"]
 
@@ -134,7 +124,7 @@ else:
 baseline = df[features].tail(1).iloc[0]
 
 # ------------------------------
-# 6️⃣ Event Simulation & Risk Scoring
+# Event Simulation & Risk Scoring
 # ------------------------------
 event_options = ["Normal", "Reactor_Failure", "Cold_Storage_Issue", "Supply_Delay"]
 
@@ -179,7 +169,7 @@ def risk_color(risk):
     return 'red'
 
 # ------------------------------
-# 7️⃣ Sidebar Controls
+# Sidebar Controls
 # ------------------------------
 st.sidebar.title("Batch Simulation")
 selected_event = st.sidebar.selectbox("Select Event for Simulation", event_options)
@@ -198,19 +188,17 @@ if apply_event:
         st.session_state.simulated_batches.append(batch_result)
 
 # ------------------------------
-# 8️⃣ Display Results
+# Display Results
 # ------------------------------
 if st.session_state.simulated_batches:
     results_df = pd.DataFrame(st.session_state.simulated_batches)
     st.subheader("📈 Simulation Results")
     st.dataframe(results_df)
 
-    # Recommendations
     st.subheader("💡 AI Recommendations")
     for batch in st.session_state.simulated_batches[-num_batches:]:
         st.write(f"Batch {batch['batch']} ({batch['event']}): {recommend_action(batch)}")
 
-    # Knowledge Graph
     st.subheader("🌐 Knowledge Graph")
     net = Network(height="600px", width="100%", directed=True)
     for node in G.nodes(data=True):
@@ -218,6 +206,9 @@ if st.session_state.simulated_batches:
     for batch in st.session_state.simulated_batches:
         batch_node = f"Batch_{batch['batch']}"
         net.add_node(batch_node, label=batch_node, color=risk_color(batch['risk_score']))
-        net.add_edge(batch_node, np.random.choice(ASSETS))
+        # Each batch links to all assets randomly impacted
+        impacted_assets = np.random.choice(ASSETS, size=np.random.randint(1, len(ASSETS)+1), replace=False)
+        for asset in impacted_assets:
+            net.add_edge(batch_node, asset)
     html = net.generate_html()
     components.html(html, height=650, scrolling=True)
