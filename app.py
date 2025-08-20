@@ -1,5 +1,5 @@
 # ------------------------------
-# Cognitive Pharma Plant Digital Twin Dashboard (Robust Update)
+# Cognitive Pharma Plant Digital Twin Dashboard (Robust + Streamlit Cloud Safe)
 # ------------------------------
 
 import os
@@ -52,6 +52,7 @@ def fetch_dataset_safe(dataset_slug: str) -> pd.DataFrame:
     try:
         api = KaggleApi()
         api.authenticate()
+        st.info("⏳ Downloading dataset from Kaggle...")
         download_path = dataset_path / "kaggle_download"
         download_path.mkdir(exist_ok=True)
         api.dataset_download_files(dataset_slug, path=str(download_path), unzip=True)
@@ -61,25 +62,25 @@ def fetch_dataset_safe(dataset_slug: str) -> pd.DataFrame:
                     return pd.read_csv(os.path.join(root, f))
                 elif f.endswith((".xls", ".xlsx")):
                     return pd.read_excel(os.path.join(root, f))
-        st.warning("No CSV/Excel found; using sample dataset.")
+        st.warning("⚠️ No CSV/Excel found in dataset. Using sample dataset.")
     except Exception as e:
-        st.warning(f"Kaggle download failed: {e}")
+        st.warning(f"⚠️ Kaggle download failed: {e}")
     # fallback sample dataset
     return pd.DataFrame({
-        "feature1": [0.1,0.2,0.3],
-        "feature2": [1.0,1.1,1.2],
-        "yield": [0.95,0.97,0.96]
+        "temperature": [37, 38, 39],
+        "pressure": [1.0, 1.2, 1.1],
+        "yield": [0.95, 0.96, 0.97]
     })
 
 if "df" not in st.session_state:
     st.session_state.df = fetch_dataset_safe(dataset_id)
 df = st.session_state.df
-st.success("Dataset ready!")
+st.success("✅ Dataset ready!")
 
 # ------------------------------
 # Fault Injection
 # ------------------------------
-st.sidebar.subheader("Fault Injection")
+st.sidebar.subheader("⚠️ Fault Injection")
 fault_chance = st.sidebar.slider("Chance of Faulty Batch (%)", 0, 100, 10, 5)
 inject_faults = st.sidebar.checkbox("Enable Faulty Batches", value=True)
 
@@ -88,7 +89,7 @@ inject_faults = st.sidebar.checkbox("Enable Faulty Batches", value=True)
 # ------------------------------
 numeric_cols = df.select_dtypes(include=['float64','int64']).columns.tolist()
 if not numeric_cols:
-    st.error("No numeric columns found in dataset.")
+    st.error("❌ No numeric columns found in dataset.")
     st.stop()
 
 target_col = 'yield' if 'yield' in numeric_cols else numeric_cols[-1]
@@ -164,10 +165,10 @@ def risk_color(risk):
 # ------------------------------
 # Sidebar Controls
 # ------------------------------
-st.sidebar.title("Batch Simulation")
+st.sidebar.title("🎛️ Batch Simulation")
 selected_event = st.sidebar.selectbox("Select Event for Simulation", event_options)
 num_batches = st.sidebar.slider("Number of Batches to Simulate", 1, 10, 1)
-apply_event = st.sidebar.button("Simulate Batches")
+apply_event = st.sidebar.button("▶️ Simulate Batches")
 
 if "simulated_batches" not in st.session_state:
     st.session_state.simulated_batches = []
