@@ -1,5 +1,5 @@
 # ------------------------------
-# Cognitive Pharma Plant Digital Twin Dashboard (Updated)
+# Cognitive Pharma Plant Digital Twin Dashboard (Robust Update)
 # ------------------------------
 
 import os
@@ -15,14 +15,12 @@ from kaggle.api.kaggle_api_extended import KaggleApi
 from pathlib import Path
 
 # ------------------------------
-# Handle Kaggle API credentials via Streamlit secrets
+# Handle Kaggle API credentials
 # ------------------------------
 if "KAGGLE_USERNAME" in st.secrets and "KAGGLE_KEY" in st.secrets:
     os.environ["KAGGLE_USERNAME"] = st.secrets["KAGGLE_USERNAME"]
     os.environ["KAGGLE_KEY"] = st.secrets["KAGGLE_KEY"]
 
-# ------------------------------
-# User Instructions
 # ------------------------------
 st.title("🧬 Cognitive Pharma Plant Digital Twin")
 st.markdown("""
@@ -36,53 +34,50 @@ st.markdown("""
 """)
 
 # ------------------------------
-# Kaggle API authentication
+# Dataset Setup
 # ------------------------------
 dataset_path = Path("data")
 dataset_path.mkdir(exist_ok=True)
 
-api = KaggleApi()
-try:
-    api.authenticate()
-    st.success("✅ Kaggle API authenticated successfully!")
-except Exception as e:
-    st.error(f"Failed to authenticate with Kaggle API: {e}")
-    st.stop()
-
-# ------------------------------
-# Dataset Loading
-# ------------------------------
 st.sidebar.title("📊 Dataset Settings")
 dataset_id = st.sidebar.text_input(
     "Kaggle Dataset ID",
     "stephengoldie/big-databiopharmaceutical-manufacturing"
 )
 
-@st.cache_data(show_spinner="Downloading dataset from Kaggle…")
-def fetch_dataset(dataset_slug: str) -> pd.DataFrame:
-    download_path = dataset_path / "kaggle_download"
-    download_path.mkdir(exist_ok=True)
-    api.dataset_download_files(dataset_slug, path=str(download_path), unzip=True)
-    for root, _, files in os.walk(download_path):
-        for f in files:
-            if f.endswith(".csv"):
-                return pd.read_csv(os.path.join(root, f))
-            elif f.endswith((".xls", ".xlsx")):
-                return pd.read_excel(os.path.join(root, f))
-    raise FileNotFoundError("No CSV or Excel files found in Kaggle dataset.")
+# ------------------------------
+# Safe Kaggle dataset fetch
+# ------------------------------
+def fetch_dataset_safe(dataset_slug: str) -> pd.DataFrame:
+    try:
+        api = KaggleApi()
+        api.authenticate()
+        download_path = dataset_path / "kaggle_download"
+        download_path.mkdir(exist_ok=True)
+        api.dataset_download_files(dataset_slug, path=str(download_path), unzip=True)
+        for root, _, files in os.walk(download_path):
+            for f in files:
+                if f.endswith(".csv"):
+                    return pd.read_csv(os.path.join(root, f))
+                elif f.endswith((".xls", ".xlsx")):
+                    return pd.read_excel(os.path.join(root, f))
+        st.warning("No CSV/Excel found; using sample dataset.")
+    except Exception as e:
+        st.warning(f"Kaggle download failed: {e}")
+    # fallback sample dataset
+    return pd.DataFrame({
+        "feature1": [0.1,0.2,0.3],
+        "feature2": [1.0,1.1,1.2],
+        "yield": [0.95,0.97,0.96]
+    })
 
 if "df" not in st.session_state:
-    try:
-        st.session_state.df = fetch_dataset(dataset_id)
-        st.success("Dataset loaded successfully!")
-    except Exception as e:
-        st.error(f"Failed to download/load dataset: {e}")
-        st.stop()
-
+    st.session_state.df = fetch_dataset_safe(dataset_id)
 df = st.session_state.df
+st.success("Dataset ready!")
 
 # ------------------------------
-# Dataset Summary & Fault Injection
+# Fault Injection
 # ------------------------------
 st.sidebar.subheader("Fault Injection")
 fault_chance = st.sidebar.slider("Chance of Faulty Batch (%)", 0, 100, 10, 5)
@@ -109,7 +104,7 @@ rmse = np.sqrt(np.mean((y_test - y_pred)**2))
 st.sidebar.write(f"✅ RMSE on test set: {rmse:.3f}")
 
 # ------------------------------
-# Knowledge Graph
+# Knowledge Graph Setup
 # ------------------------------
 ASSETS = ["Reactor_1", "Reactor_2", "Cold_Storage_1", "Cold_Storage_2"]
 
@@ -124,7 +119,7 @@ else:
 baseline = df[features].tail(1).iloc[0]
 
 # ------------------------------
-# Event Simulation & Risk Scoring
+# Event Simulation
 # ------------------------------
 event_options = ["Normal", "Reactor_Failure", "Cold_Storage_Issue", "Supply_Delay"]
 
@@ -141,13 +136,11 @@ impact_map = {
 def simulate_next_batch(event_type, cumulative_effect):
     batch = baseline + cumulative_effect + np.random.normal(0, 0.02, size=len(features))
     batch += impact_map.get(event_type, 0)
-    
     if inject_faults and np.random.rand() < (fault_chance / 100):
         batch *= np.random.uniform(0.7, 0.9, size=len(batch))
         actual_event = "Faulty_Batch"
     else:
         actual_event = event_type
-
     batch_df = pd.DataFrame([batch], columns=features)
     batch_pred = model.predict(batch_df)[0]
     risk_score = round(min(1 - batch_pred + (0.1 if actual_event != "Normal" else 0), 1.0), 2)
@@ -200,15 +193,14 @@ if st.session_state.simulated_batches:
         st.write(f"Batch {batch['batch']} ({batch['event']}): {recommend_action(batch)}")
 
     st.subheader("🌐 Knowledge Graph")
-    net = Network(height="600px", width="100%", directed=True)
-    for node in G.nodes(data=True):
-        net.add_node(node[0], label=node[0], color=node[1].get("color", "blue"))
-    for batch in st.session_state.simulated_batches:
-        batch_node = f"Batch_{batch['batch']}"
-        net.add_node(batch_node, label=batch_node, color=risk_color(batch['risk_score']))
-        # Each batch links to all assets randomly impacted
-        impacted_assets = np.random.choice(ASSETS, size=np.random.randint(1, len(ASSETS)+1), replace=False)
-        for asset in impacted_assets:
-            net.add_edge(batch_node, asset)
-    html = net.generate_html()
-    components.html(html, height=650, scrolling=True)
+    if G.nodes:
+        net = Network(height="600px", width="100%", directed=True)
+        for node in G.nodes(data=True):
+            net.add_node(node[0], label=node[0], color=node[1].get("color", "blue"))
+        for batch in st.session_state.simulated_batches:
+            batch_node = f"Batch_{batch['batch']}"
+            net.add_node(batch_node, label=batch_node, color=risk_color(batch['risk_score']))
+            impacted_assets = np.random.choice(ASSETS, size=np.random.randint(1, len(ASSETS)+1), replace=False)
+            for asset in impacted_assets:
+                net.add_edge(batch_node, asset)
+        html = net.generate_html(_
